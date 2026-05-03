@@ -22,3 +22,12 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
+// Ruta para la página de inicio (Raíz)
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'success',
+    message: '¡Bienvenido a la API de la aplicación Roster!',
+    version: '1.0.0',
+    documentationUrl: 'https://documentacion-de-tu-api.com' // Puedes cambiarlo o quitarlo
+  });
+});
