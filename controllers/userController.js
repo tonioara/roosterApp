@@ -34,7 +34,7 @@ exports.login = async (req, res) => {
     const isMatch = await user.matchPassword(password);
     if (!isMatch) return res.status(401).json({ message: 'Incorrect password.' });
 
-    // ✅ Superadmin — buscar todos sus restaurantes
+    // ✅ SUPERADMIN — devolver lista de restaurantes para elegir
     if (user.role === 'superadmin') {
       const restaurants = await Restaurant.find({
         _id: { $in: user.managedRestaurants }
@@ -43,15 +43,17 @@ exports.login = async (req, res) => {
         message: 'Superadmin access granted',
         requiresRestaurantSelection: true,
         user: {
-          _id: user._id, name: user.name, email: user.email,
-          role: user.role, managedRestaurants: restaurants,
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          managedRestaurants: restaurants,
         },
-        // Token temporal sin restaurante — se actualiza al elegir
         tempToken: generateToken(user, null),
       });
     }
 
-    // ✅ Admin normal — tiene un solo restaurante
+    // Admin normal
     if (user.role === 'admin') {
       const restaurant = await Restaurant.findById(user.restaurantId);
       const token = generateToken(user, user.restaurantId);
@@ -88,13 +90,11 @@ exports.login = async (req, res) => {
   }
 };
 
-// ✅ Superadmin elige restaurante — genera token con ese restaurantId
 exports.selectRestaurant = async (req, res) => {
   try {
     const { restaurantId } = req.body;
     const user = await User.findById(req.user._id);
 
-    // Verificar que el restaurante pertenece a este superadmin
     const hasAccess = user.managedRestaurants.some(
       id => id.toString() === restaurantId
     );
