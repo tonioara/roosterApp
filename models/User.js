@@ -6,6 +6,8 @@ const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   password: { type: String, required: true, minlength: 6 },
   role: { type: String, enum: ['FOH', 'BOH', 'admin'], required: true },
+  contractType: { type: String, enum: ['full-time', 'part-time'], default: 'full-time' },
+  maxWeeklyHours: { type: Number, default: 40 },
   skills: { type: [String], default: [] },
   phoneToken: { type: String, default: '' },
   pushSubscription: { type: Object, default: null },
@@ -13,6 +15,10 @@ const UserSchema = new mongoose.Schema({
 });
 
 UserSchema.pre('save', async function (next) {
+  // Auto-asignar horas según contrato
+  if (this.isModified('contractType')) {
+    this.maxWeeklyHours = this.contractType === 'part-time' ? 20 : 40;
+  }
   if (!this.isModified('password')) return next();
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
