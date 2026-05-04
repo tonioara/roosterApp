@@ -15,10 +15,9 @@ app.use('/api/roster',   require('./routes/rosterRoutes'));
 app.use('/api/requests', require('./routes/requestRoutes'));
 app.use('/api/shifts',   require('./routes/shiftRoutes'));
 app.use('/api/push',     require('./routes/pushRoutes'));
+app.use('/api/schedule', require('./routes/scheduleRoutes'));
 
-app.get('/', (req, res) => {
-  res.json({ status: 'success', message: 'RoosterApp API corriendo' });
-});
+app.get('/', (req, res) => res.json({ status: 'success', message: 'RoosterApp API' }));
 
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => console.log(`Servidor corriendo en el puerto ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
