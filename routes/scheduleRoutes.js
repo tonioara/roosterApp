@@ -7,6 +7,7 @@ const { suggestFOH, suggestBOH, calculateWeeklyHours } = require('../utils/sched
 router.post('/suggest', protect, restrictToAdmin, async (req, res) => {
   try {
     const { weekId, dailyStaff } = req.body;
+    const restaurantId = req.user.restaurantId;
     if (!weekId || !dailyStaff) {
       return res.status(400).json({ message: 'weekId and dailyStaff required.' });
     }
@@ -19,23 +20,17 @@ router.post('/suggest', protect, restrictToAdmin, async (req, res) => {
 
       const employees = await User.find({
         _id: { $in: employeeIds },
-        role: { $in: ['FOH', 'BOH'] }
+        role: { $in: ['FOH', 'BOH'] },
+        restaurantId,
       }).select('name role contractType maxWeeklyHours');
 
       const foh = employees.filter(e => e.role === 'FOH');
       const boh = employees.filter(e => e.role === 'BOH');
 
-      const fohShifts = suggestFOH(foh);
-      // ✅ Pasamos el día para que BOH sepa si es jueves+ o no
+      const fohShifts = suggestFOH(foh, day);
       const bohShifts = suggestBOH(boh, day);
 
-      suggestions[day] = {
-        FOH: fohShifts,
-        BOH: bohShifts,
-        totalFOH: foh.length,
-        totalBOH: boh.length,
-      };
-
+      suggestions[day] = { FOH: fohShifts, BOH: bohShifts };
       [...fohShifts, ...bohShifts].forEach(s => allShiftsFlat.push({ ...s, day }));
     }
 
@@ -51,6 +46,7 @@ router.post('/suggest', protect, restrictToAdmin, async (req, res) => {
 router.post('/confirm', protect, restrictToAdmin, async (req, res) => {
   try {
     const { weekId, confirmedShifts } = req.body;
+    const restaurantId = req.user.restaurantId;
     if (!weekId || !confirmedShifts) {
       return res.status(400).json({ message: 'weekId and confirmedShifts required.' });
     }
@@ -59,34 +55,27 @@ router.post('/confirm', protect, restrictToAdmin, async (req, res) => {
     const { calculateWeeklyHours } = require('../utils/scheduleEngine');
 
     const shifts = confirmedShifts.map(s => ({
-      day: s.day, role: s.role,
-      employee: s.employeeId,
-      startTime: s.startTime,
-      endTime: s.endTime,
+      day: s.day, role: s.role, employee: s.employeeId,
+      startTime: s.startTime, endTime: s.endTime,
       shiftType: s.startTime < '14:00' ? 'Mañana' : 'Tarde',
-      hoursWorked: s.hoursWorked,
-      notes: s.note || '',
+      hoursWorked: s.hoursWorked, notes: s.note || '',
     }));
 
-    // Si hay split shifts, agregar el turno de vuelta como shift separado
     const splitShifts = confirmedShifts
       .filter(s => s.isSplit && s.splitReturn && s.splitEnd)
       .map(s => ({
-        day: s.day, role: s.role,
-        employee: s.employeeId,
-        startTime: s.splitReturn,
-        endTime: s.splitEnd,
-        shiftType: 'Tarde',
-        hoursWorked: s.splitHours || 0,
+        day: s.day, role: s.role, employee: s.employeeId,
+        startTime: s.splitReturn, endTime: s.splitEnd,
+        shiftType: 'Tarde', hoursWorked: s.splitHours || 0,
         notes: 'Split shift — second part',
       }));
 
-    let roster = await Roster.findOne({ weekId });
+    let roster = await Roster.findOne({ weekId, restaurantId });
     if (roster) {
       roster.shifts = [...shifts, ...splitShifts];
       await roster.save();
     } else {
-      roster = new Roster({ weekId, shifts: [...shifts, ...splitShifts] });
+      roster = new Roster({ weekId, restaurantId, shifts: [...shifts, ...splitShifts] });
       await roster.save();
     }
 

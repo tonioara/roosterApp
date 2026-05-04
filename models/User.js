@@ -5,17 +5,18 @@ const UserSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   password: { type: String, required: true, minlength: 6 },
-  role: { type: String, enum: ['FOH', 'BOH', 'admin'], required: true },
+  role: { type: String, enum: ['FOH', 'BOH', 'admin', 'superadmin'], required: true },
   contractType: { type: String, enum: ['full-time', 'part-time'], default: 'full-time' },
   maxWeeklyHours: { type: Number, default: 40 },
   skills: { type: [String], default: [] },
   phoneToken: { type: String, default: '' },
   pushSubscription: { type: Object, default: null },
+  // ✅ Cada usuario pertenece a un restaurante
+  restaurantId: { type: mongoose.Schema.Types.ObjectId, ref: 'Restaurant', required: false },
   createdAt: { type: Date, default: Date.now },
 });
 
 UserSchema.pre('save', async function (next) {
-  // Auto-asignar horas según contrato
   if (this.isModified('contractType')) {
     this.maxWeeklyHours = this.contractType === 'part-time' ? 20 : 40;
   }

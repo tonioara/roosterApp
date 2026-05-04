@@ -5,18 +5,19 @@ const Request = require('../models/Request');
 exports.createRoster = async (req, res) => {
   try {
     const { weekId, shifts } = req.body;
+    const restaurantId = req.user.restaurantId;
     if (!weekId || !shifts || shifts.length === 0) {
-      return res.status(400).json({ message: 'Se requiere weekId y shifts.' });
+      return res.status(400).json({ message: 'weekId and shifts required.' });
     }
-    let roster = await Roster.findOne({ weekId });
+    let roster = await Roster.findOne({ weekId, restaurantId });
     if (roster) {
       roster.shifts = shifts;
       await roster.save();
-      return res.status(200).json({ message: 'Roster actualizado', roster });
+      return res.status(200).json({ message: 'Roster updated.', roster });
     }
-    roster = new Roster({ weekId, shifts });
+    roster = new Roster({ weekId, restaurantId, shifts });
     await roster.save();
-    res.status(201).json({ message: 'Roster creado', roster });
+    res.status(201).json({ message: 'Roster created.', roster });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -25,10 +26,11 @@ exports.createRoster = async (req, res) => {
 exports.getRosterByWeek = async (req, res) => {
   try {
     const { weekId } = req.params;
-    const roster = await Roster.findOne({ weekId })
-      .populate('shifts.employee', 'name role skills');
+    const restaurantId = req.user.restaurantId;
+    const roster = await Roster.findOne({ weekId, restaurantId })
+      .populate('shifts.employee', 'name role skills contractType');
     if (!roster) {
-      return res.status(404).json({ message: 'Roster no encontrado para esta semana.' });
+      return res.status(404).json({ message: 'Roster not found.' });
     }
     res.status(200).json(roster);
   } catch (error) {
@@ -39,23 +41,21 @@ exports.getRosterByWeek = async (req, res) => {
 exports.generateAutomaticRoster = async (req, res) => {
   try {
     const { weekId } = req.body;
-    if (!weekId) {
-      return res.status(400).json({ message: 'Se requiere weekId.' });
-    }
+    const restaurantId = req.user.restaurantId;
+    if (!weekId) return res.status(400).json({ message: 'weekId required.' });
 
-    const users = await User.find({ role: { $in: ['FOH', 'BOH'] } });
+    const users = await User.find({
+      role: { $in: ['FOH', 'BOH'] },
+      restaurantId,
+    });
     if (!users || users.length === 0) {
-      return res.status(404).json({ message: 'No hay empleados registrados.' });
+      return res.status(404).json({ message: 'No employees registered.' });
     }
 
-    // ✅ Obtener solicitudes APROBADAS de día libre para esta semana
     const approvedRequests = await Request.find({
-      weekReference: weekId,
-      status: 'Approved',
-      type: 'dayOff',
+      weekReference: weekId, status: 'Approved', type: 'dayOff', restaurantId,
     }).populate('userId', 'name _id');
 
-    // Mapa: empleadoId -> [dias libres aprobados]
     const approvedDaysOff = {};
     approvedRequests.forEach(req => {
       const empId = req.userId?._id?.toString();
@@ -64,72 +64,35 @@ exports.generateAutomaticRoster = async (req, res) => {
       approvedDaysOff[empId].push(req.requestedDayOff);
     });
 
-    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const shiftsToGenerate = [];
 
     users.forEach((user, index) => {
       const empId = user._id.toString();
       const role = user.role === 'BOH' ? 'BOH' : 'FOH';
       const approvedOff = approvedDaysOff[empId] || [];
-
-      // Día libre rotativo solo si no tiene solicitud aprobada
       const rotativeDayOff = days[index % days.length];
 
       days.forEach(day => {
-        // Si tiene ese día aprobado como libre → saltar
         if (approvedOff.includes(day)) return;
-
-        // Si no tiene ningún día aprobado → aplicar rotativo
         if (approvedOff.length === 0 && day === rotativeDayOff) return;
-
-        shiftsToGenerate.push({ day, role, employee: user._id, shiftType: 'Mañana' });
-        shiftsToGenerate.push({ day, role, employee: user._id, shiftType: 'Tarde' });
+        shiftsToGenerate.push({ day, role, employee: user._id, startTime: '10:30', endTime: '22:00', shiftType: 'Mañana', hoursWorked: 11.5 });
       });
     });
 
-    let existingRoster = await Roster.findOne({ weekId });
-    if (existingRoster) {
-      existingRoster.shifts = shiftsToGenerate;
-      await existingRoster.save();
-      const populated = await Roster.findById(existingRoster._id)
-        .populate('shifts.employee', 'name role skills');
-      return res.status(200).json({
-        message: 'Roster actualizado con días libres aprobados.',
-        roster: populated,
-        daysOffApplied: approvedDaysOff,
-      });
+    let roster = await Roster.findOne({ weekId, restaurantId });
+    if (roster) {
+      roster.shifts = shiftsToGenerate;
+      await roster.save();
+    } else {
+      roster = new Roster({ weekId, restaurantId, shifts: shiftsToGenerate });
+      await roster.save();
     }
 
-    const newRoster = new Roster({ weekId, shifts: shiftsToGenerate });
-    await newRoster.save();
-    const populated = await Roster.findById(newRoster._id)
+    const populated = await Roster.findById(roster._id)
       .populate('shifts.employee', 'name role skills');
 
-    res.status(201).json({
-      message: 'Roster generado con días libres aprobados.',
-      roster: populated,
-      daysOffApplied: approvedDaysOff,
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-exports.createTestUsers = async (req, res) => {
-  try {
-    const testUsers = [
-      { name: 'Antonio', role: 'FOH', skills: ['bar', 'coffee', 'service'] },
-      { name: 'PJ',      role: 'FOH', skills: ['bar', 'service'] },
-      { name: 'Crystal', role: 'FOH', skills: ['service', 'management'] },
-      { name: 'Jane',    role: 'FOH', skills: ['service'] },
-      { name: 'Pin',     role: 'BOH', skills: ['cocina'] },
-      { name: 'Betty',   role: 'BOH', skills: ['parrilla'] },
-      { name: 'Amber',   role: 'admin', skills: ['management'] },
-    ];
-    for (const u of testUsers) {
-      await User.updateOne({ name: u.name }, { $set: u }, { upsert: true });
-    }
-    res.status(201).json({ message: 'Staff creado', count: testUsers.length });
+    res.status(201).json({ message: 'Roster generated.', roster: populated });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

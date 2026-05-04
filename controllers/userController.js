@@ -2,12 +2,21 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'mi_clave_secreta_muy_segura';
+
 const generateToken = (user) =>
-  jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+  jwt.sign(
+    { id: user._id, role: user.role, restaurantId: user.restaurantId },
+    JWT_SECRET,
+    { expiresIn: '8h' }
+  );
 
 exports.getStaff = async (req, res) => {
   try {
-    const staff = await User.find({}).select('-password');
+    // ✅ Solo ve el staff de su restaurante
+    const filter = req.user.role === 'superadmin'
+      ? {}
+      : { restaurantId: req.user.restaurantId };
+    const staff = await User.find(filter).select('-password');
     res.status(200).json(staff);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -18,7 +27,7 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required.' });
+      return res.status(400).json({ message: 'Email and password required.' });
     }
     const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) return res.status(404).json({ message: 'User not found.' });
@@ -32,9 +41,10 @@ exports.login = async (req, res) => {
       role: user.role, skills: user.skills,
       contractType: user.contractType,
       maxWeeklyHours: user.maxWeeklyHours,
+      restaurantId: user.restaurantId,
     };
 
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role === 'admin' || user.role === 'superadmin';
     res.status(200).json({
       message: isAdmin ? 'Admin access granted' : 'Employee access granted',
       token, user: userPublic,
@@ -47,27 +57,30 @@ exports.login = async (req, res) => {
 
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, password, role, contractType, skills, phoneToken } = req.body;
+    const { name, email, password, role, contractType, skills } = req.body;
     if (!name || !email || !password || !role) {
-      return res.status(400).json({ message: 'Name, email, password and role are required.' });
+      return res.status(400).json({ message: 'Name, email, password and role required.' });
     }
     const exists = await User.findOne({ email: email.toLowerCase().trim() });
-    if (exists) return res.status(400).json({ message: 'A user with that email already exists.' });
+    if (exists) return res.status(400).json({ message: 'Email already exists.' });
 
     const newUser = new User({
       name, email: email.toLowerCase().trim(), password, role,
       contractType: contractType || 'full-time',
       maxWeeklyHours: contractType === 'part-time' ? 20 : 40,
-      skills: skills || [], phoneToken: phoneToken || '',
+      skills: skills || [],
+      // ✅ Hereda el restaurante del admin que lo crea
+      restaurantId: req.user.restaurantId,
     });
-
     await newUser.save();
+
     const userPublic = {
       _id: newUser._id, name: newUser.name, email: newUser.email,
       role: newUser.role, contractType: newUser.contractType,
       maxWeeklyHours: newUser.maxWeeklyHours, skills: newUser.skills,
+      restaurantId: newUser.restaurantId,
     };
-    res.status(201).json({ message: 'Staff member added successfully', user: userPublic });
+    res.status(201).json({ message: 'Staff member added.', user: userPublic });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -77,7 +90,6 @@ exports.updateUserRole = async (req, res) => {
   try {
     const { id } = req.params;
     const { role, skills, name, contractType } = req.body;
-
     const updateData = {};
     if (role) updateData.role = role;
     if (skills) updateData.skills = skills;
@@ -86,11 +98,9 @@ exports.updateUserRole = async (req, res) => {
       updateData.contractType = contractType;
       updateData.maxWeeklyHours = contractType === 'part-time' ? 20 : 40;
     }
-
-    const updatedUser = await User.findByIdAndUpdate(id, updateData, { new: true, runValidators: true }).select('-password');
-    if (!updatedUser) return res.status(404).json({ message: 'User not found' });
-
-    res.status(200).json({ message: 'Profile updated', updatedUser });
+    const updated = await User.findByIdAndUpdate(id, updateData, { new: true }).select('-password');
+    if (!updated) return res.status(404).json({ message: 'User not found.' });
+    res.status(200).json({ message: 'Updated.', updatedUser: updated });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -98,10 +108,9 @@ exports.updateUserRole = async (req, res) => {
 
 exports.deleteUser = async (req, res) => {
   try {
-    const { id } = req.params;
-    const deletedUser = await User.findByIdAndDelete(id);
-    if (!deletedUser) return res.status(404).json({ message: 'User not found' });
-    res.status(200).json({ message: 'Member removed successfully' });
+    const deleted = await User.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ message: 'User not found.' });
+    res.status(200).json({ message: 'Member removed.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -113,10 +122,10 @@ exports.changePassword = async (req, res) => {
     const user = await User.findById(req.user._id);
     const isMatch = await user.matchPassword(currentPassword);
     if (!isMatch) return res.status(401).json({ message: 'Current password incorrect.' });
-    if (newPassword.length < 6) return res.status(400).json({ message: 'New password must be at least 6 characters.' });
+    if (newPassword.length < 6) return res.status(400).json({ message: 'Min 6 characters.' });
     user.password = newPassword;
     await user.save();
-    res.status(200).json({ message: 'Password updated successfully.' });
+    res.status(200).json({ message: 'Password updated.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
