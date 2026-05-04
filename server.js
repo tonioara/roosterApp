@@ -7,27 +7,18 @@ dotenv.config();
 connectDB();
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
-app.use('/api/shifts', require('./routes/shiftRoutes'));
+app.use('/api/users',    require('./routes/userRoutes'));
+app.use('/api/roster',   require('./routes/rosterRoutes'));
+app.use('/api/requests', require('./routes/requestRoutes'));
+app.use('/api/shifts',   require('./routes/shiftRoutes'));
+app.use('/api/push',     require('./routes/pushRoutes'));
 
-app.use('/api/shifts', require('./routes/shiftRoutes'));
-app.use('/api/requests', require('./routes/requestRoutes')); // Agrega esta línea
-app.use('/api/users', require('./routes/userRoutes'));
-app.use('/api/roster', require('./routes/rosterRoutes'));
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
-});
-// Ruta para la página de inicio (Raíz)
 app.get('/', (req, res) => {
-  res.status(200).json({
-    status: 'success',
-    message: '¡Bienvenido a la API de la aplicación Roster!',
-    version: '1.0.0',
-    documentationUrl: 'https://documentacion-de-tu-api.com' // Puedes cambiarlo o quitarlo
-  });
+  res.json({ status: 'success', message: 'RoosterApp API corriendo' });
 });
+
+const PORT = process.env.PORT || 5001;
+app.listen(PORT, () => console.log(`Servidor corriendo en el puerto ${PORT}`));

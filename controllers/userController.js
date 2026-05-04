@@ -3,123 +3,153 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'mi_clave_secreta_muy_segura';
 
-// 1. Obtener todo el staff
+const generateToken = (user) =>
+  jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+
+// GET /api/users — obtener todo el staff
 exports.getStaff = async (req, res) => {
   try {
-    const staff = await User.find({});
+    const staff = await User.find({}).select('-password');
     res.status(200).json(staff);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-// 2. Iniciar sesión (Login)
+// POST /api/users/login — login con email + password
 exports.login = async (req, res) => {
   try {
-    const { name, email } = req.body;
-    
-    // Buscamos al usuario por nombre o por email (para que soporte ambos)
-    let user;
-    if (email) {
-      user = await User.findOne({ email });
-    } else {
-      user = await User.findOne({ name });
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email y contraseña son requeridos.' });
     }
 
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) {
-      return res.status(404).json({ message: 'Usuario no encontrado en el staff' });
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
 
-    // Generamos el token incluyendo el _id y el role (para ser usado en auth.js)
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, {
-      expiresIn: '1d',
-    });
-
-    // Control de redirección y permisos (incluye a Antonio y Amber como admins)
-    if (user.role === 'admin' || user.name === 'Antonio') {
-      return res.status(200).json({
-        message: 'Acceso de Administrador/Manager concedido',
-        token,
-        role: user.role,
-        user,
-        redirectUrl: '/admin-dashboard'
-      });
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Contraseña incorrecta.' });
     }
 
-    res.status(200).json({
-      message: 'Acceso de Empleado concedido',
-      token,
+    const token = generateToken(user);
+    const userPublic = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
       role: user.role,
-      user,
-      redirectUrl: '/employee-dashboard'
-    });
+      skills: user.skills,
+    };
 
+    const isAdmin = user.role === 'admin';
+    res.status(200).json({
+      message: isAdmin ? 'Acceso de Admin concedido' : 'Acceso de Empleado concedido',
+      token,
+      user: userPublic,
+      redirectUrl: isAdmin ? '/admin-dashboard' : '/employee-dashboard',
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-// 3. Crear usuario (Solo el administrador puede hacer esto)
+// POST /api/users — crear usuario (solo admin)
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, role, skills, phoneToken } = req.body;
+    const { name, email, password, role, skills, phoneToken } = req.body;
 
-    // Verificamos si el usuario ya existe por nombre o por email
-    const userExists = await User.findOne({ $or: [{ name }, { email }] });
-    if (userExists) {
-      return res.status(400).json({ message: 'El usuario ya existe en el staff' });
+    if (!name || !email || !password || !role) {
+      return res.status(400).json({ message: 'Nombre, email, contraseña y rol son requeridos.' });
     }
 
-    // Creamos el nuevo miembro con email por defecto para evitar errores de índice
+    const exists = await User.findOne({ email: email.toLowerCase().trim() });
+    if (exists) {
+      return res.status(400).json({ message: 'Ya existe un usuario con ese email.' });
+    }
+
     const newUser = new User({
       name,
-      email: email || `${name.toLowerCase().replace(/\s+/g, '')}@rooster.com`,
+      email: email.toLowerCase().trim(),
+      password,
       role,
-      skills,
-      phoneToken
+      skills: skills || [],
+      phoneToken: phoneToken || '',
     });
 
     await newUser.save();
-    res.status(201).json({ message: 'Miembro del staff agregado con éxito', newUser });
+
+    const userPublic = {
+      _id: newUser._id,
+      name: newUser.name,
+      email: newUser.email,
+      role: newUser.role,
+      skills: newUser.skills,
+    };
+
+    res.status(201).json({ message: 'Miembro del staff agregado con éxito', user: userPublic });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-// 4. Actualizar rol y habilidades
+// PUT /api/users/:id — actualizar rol y habilidades
 exports.updateUserRole = async (req, res) => {
   try {
     const { id } = req.params;
-    const { role, skills } = req.body;
+    const { role, skills, name } = req.body;
 
     const updatedUser = await User.findByIdAndUpdate(
       id,
-      { role, skills },
+      { ...(role && { role }), ...(skills && { skills }), ...(name && { name }) },
       { new: true, runValidators: true }
-    );
+    ).select('-password');
 
     if (!updatedUser) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    res.status(200).json({ message: 'Perfil actualizado con éxito', updatedUser });
+    res.status(200).json({ message: 'Perfil actualizado', updatedUser });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-// 5. Eliminar usuario del staff
+// DELETE /api/users/:id — eliminar usuario
 exports.deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
-
     const deletedUser = await User.findByIdAndDelete(id);
-
     if (!deletedUser) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
+    res.status(200).json({ message: 'Miembro eliminado correctamente' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 
-    res.status(200).json({ message: 'Miembro eliminado correctamente del staff' });
+// POST /api/users/change-password — cambiar contraseña
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const user = await User.findById(req.user._id);
+
+    const isMatch = await user.matchPassword(currentPassword);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Contraseña actual incorrecta.' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    res.status(200).json({ message: 'Contraseña actualizada correctamente.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
