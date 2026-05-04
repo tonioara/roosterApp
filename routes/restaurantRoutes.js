@@ -104,3 +104,46 @@ router.put('/my', protect, restrictToAdmin, async (req, res) => {
 });
 
 module.exports = router;
+
+// POST /api/restaurants/setup
+// Crear restaurante desde el wizard y asociarlo al superadmin
+router.post('/setup', protect, async (req, res) => {
+  try {
+    const { name, address } = req.body;
+    if (!name) return res.status(400).json({ message: 'Name required.' });
+
+    const restaurant = await Restaurant.create({
+      name, address: address || '',
+      openTime: '10:30', closeTime: '22:00',
+    });
+
+    // Agregar a los restaurantes del superadmin
+    await User.findByIdAndUpdate(req.user._id, {
+      $addToSet: { managedRestaurants: restaurant._id },
+      $set: { restaurantId: restaurant._id },
+    });
+
+    const updatedUser = await User.findById(req.user._id);
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign(
+      { id: updatedUser._id, role: updatedUser.role, restaurantId: restaurant._id },
+      process.env.JWT_SECRET || 'mi_clave_secreta_muy_segura',
+      { expiresIn: '8h' }
+    );
+
+    res.status(201).json({
+      message: 'Restaurant created.',
+      restaurant,
+      user: {
+        _id: updatedUser._id, name: updatedUser.name,
+        email: updatedUser.email, role: updatedUser.role,
+        restaurantId: restaurant._id,
+        restaurantName: restaurant.name,
+        managedRestaurants: updatedUser.managedRestaurants,
+      },
+      token,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
