@@ -1,21 +1,19 @@
 const User = require('../models/User');
+const Restaurant = require('../models/Restaurant');
 const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'mi_clave_secreta_muy_segura';
 
-const generateToken = (user) =>
+const generateToken = (user, activeRestaurantId) =>
   jwt.sign(
-    { id: user._id, role: user.role, restaurantId: user.restaurantId },
+    { id: user._id, role: user.role, restaurantId: activeRestaurantId },
     JWT_SECRET,
     { expiresIn: '8h' }
   );
 
 exports.getStaff = async (req, res) => {
   try {
-    // ✅ Solo ve el staff de su restaurante
-    const filter = req.user.role === 'superadmin'
-      ? {}
-      : { restaurantId: req.user.restaurantId };
+    const filter = { restaurantId: req.user.restaurantId };
     const staff = await User.find(filter).select('-password');
     res.status(200).json(staff);
   } catch (error) {
@@ -29,26 +27,95 @@ exports.login = async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password required.' });
     }
+
     const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     const isMatch = await user.matchPassword(password);
     if (!isMatch) return res.status(401).json({ message: 'Incorrect password.' });
 
-    const token = generateToken(user);
-    const userPublic = {
-      _id: user._id, name: user.name, email: user.email,
-      role: user.role, skills: user.skills,
-      contractType: user.contractType,
-      maxWeeklyHours: user.maxWeeklyHours,
-      restaurantId: user.restaurantId,
-    };
+    // ✅ Superadmin — buscar todos sus restaurantes
+    if (user.role === 'superadmin') {
+      const restaurants = await Restaurant.find({
+        _id: { $in: user.managedRestaurants }
+      });
+      return res.status(200).json({
+        message: 'Superadmin access granted',
+        requiresRestaurantSelection: true,
+        user: {
+          _id: user._id, name: user.name, email: user.email,
+          role: user.role, managedRestaurants: restaurants,
+        },
+        // Token temporal sin restaurante — se actualiza al elegir
+        tempToken: generateToken(user, null),
+      });
+    }
 
-    const isAdmin = user.role === 'admin' || user.role === 'superadmin';
+    // ✅ Admin normal — tiene un solo restaurante
+    if (user.role === 'admin') {
+      const restaurant = await Restaurant.findById(user.restaurantId);
+      const token = generateToken(user, user.restaurantId);
+      return res.status(200).json({
+        message: 'Admin access granted',
+        token,
+        user: {
+          _id: user._id, name: user.name, email: user.email,
+          role: user.role, restaurantId: user.restaurantId,
+          restaurantName: restaurant?.name || '',
+          contractType: user.contractType,
+          maxWeeklyHours: user.maxWeeklyHours,
+        },
+        redirectUrl: '/admin-dashboard',
+      });
+    }
+
+    // Empleado normal
+    const token = generateToken(user, user.restaurantId);
     res.status(200).json({
-      message: isAdmin ? 'Admin access granted' : 'Employee access granted',
-      token, user: userPublic,
-      redirectUrl: isAdmin ? '/admin-dashboard' : '/employee-dashboard',
+      message: 'Employee access granted',
+      token,
+      user: {
+        _id: user._id, name: user.name, email: user.email,
+        role: user.role, skills: user.skills,
+        contractType: user.contractType,
+        maxWeeklyHours: user.maxWeeklyHours,
+        restaurantId: user.restaurantId,
+      },
+      redirectUrl: '/employee-dashboard',
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ✅ Superadmin elige restaurante — genera token con ese restaurantId
+exports.selectRestaurant = async (req, res) => {
+  try {
+    const { restaurantId } = req.body;
+    const user = await User.findById(req.user._id);
+
+    // Verificar que el restaurante pertenece a este superadmin
+    const hasAccess = user.managedRestaurants.some(
+      id => id.toString() === restaurantId
+    );
+    if (!hasAccess) {
+      return res.status(403).json({ message: 'No access to this restaurant.' });
+    }
+
+    const restaurant = await Restaurant.findById(restaurantId);
+    if (!restaurant) return res.status(404).json({ message: 'Restaurant not found.' });
+
+    const token = generateToken(user, restaurantId);
+    res.status(200).json({
+      message: 'Restaurant selected.',
+      token,
+      activeRestaurant: { _id: restaurant._id, name: restaurant.name },
+      user: {
+        _id: user._id, name: user.name, email: user.email,
+        role: user.role, restaurantId,
+        restaurantName: restaurant.name,
+      },
+      redirectUrl: '/admin-dashboard',
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -69,18 +136,19 @@ exports.createUser = async (req, res) => {
       contractType: contractType || 'full-time',
       maxWeeklyHours: contractType === 'part-time' ? 20 : 40,
       skills: skills || [],
-      // ✅ Hereda el restaurante del admin que lo crea
       restaurantId: req.user.restaurantId,
     });
     await newUser.save();
 
-    const userPublic = {
-      _id: newUser._id, name: newUser.name, email: newUser.email,
-      role: newUser.role, contractType: newUser.contractType,
-      maxWeeklyHours: newUser.maxWeeklyHours, skills: newUser.skills,
-      restaurantId: newUser.restaurantId,
-    };
-    res.status(201).json({ message: 'Staff member added.', user: userPublic });
+    res.status(201).json({
+      message: 'Staff member added.',
+      user: {
+        _id: newUser._id, name: newUser.name, email: newUser.email,
+        role: newUser.role, contractType: newUser.contractType,
+        maxWeeklyHours: newUser.maxWeeklyHours, skills: newUser.skills,
+        restaurantId: newUser.restaurantId,
+      }
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -11,8 +11,10 @@ const UserSchema = new mongoose.Schema({
   skills: { type: [String], default: [] },
   phoneToken: { type: String, default: '' },
   pushSubscription: { type: Object, default: null },
-  // ✅ Cada usuario pertenece a un restaurante
-  restaurantId: { type: mongoose.Schema.Types.ObjectId, ref: 'Restaurant', required: false },
+  // Empleados normales: un restaurante
+  restaurantId: { type: mongoose.Schema.Types.ObjectId, ref: 'Restaurant', default: null },
+  // Superadmin: puede gestionar múltiples restaurantes
+  managedRestaurants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Restaurant' }],
   createdAt: { type: Date, default: Date.now },
 });
 
