@@ -5,7 +5,12 @@ const RestaurantSchema = new mongoose.Schema({
   address: { type: String, default: '' },
   openTime: { type: String, default: '10:30' },
   closeTime: { type: String, default: '22:00' },
-  timezone: { type: String, default: 'America/Argentina/Buenos_Aires' },
+  // ✅ Cortes de servicio definidos por Amber
+  lunchStart: { type: String, default: '10:30' },
+  lunchEnd: { type: String, default: '15:00' },
+  dinnerStart: { type: String, default: '17:00' },
+  dinnerEnd: { type: String, default: '22:00' },
+  timezone: { type: String, default: 'Pacific/Auckland' },
   active: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now },
 });
