@@ -11,23 +11,23 @@ exports.createRequest = async (req, res) => {
     const newRequest = new Request({
       userId,
       restaurantId: user.restaurantId,
-      weekReference, requestedDayOff,
+      weekReference,
+      requestedDayOff,
       type: type || 'dayOff',
       note: note || '',
       status: 'Pending',
     });
     await newRequest.save();
 
-    // Notificar admins del mismo restaurante
     const admins = await User.find({
-      role: 'admin',
+      role: { $in: ['admin', 'superadmin'] },
       restaurantId: user.restaurantId,
       pushSubscription: { $ne: null },
     });
     for (const admin of admins) {
       await sendPushNotification(admin.pushSubscription, {
         title: '🔔 New request',
-        body: `${user.name} requested ${type === 'dayOff' ? 'a day off' : 'a schedule change'} for ${requestedDayOff}.`,
+        body: `${user.name} requested ${type === 'dayOff' ? 'a day off' : 'a schedule change'}.`,
         icon: '/icon-192.png',
         url: '/admin-dashboard',
       });
@@ -41,11 +41,12 @@ exports.createRequest = async (req, res) => {
 
 exports.getPendingRequests = async (req, res) => {
   try {
-    // ✅ Solo ve las solicitudes de su restaurante
-    const filter = req.user.role === 'superadmin'
-      ? {}
-      : { restaurantId: req.user.restaurantId };
-    const requests = await Request.find(filter).populate('userId', 'name role email');
+    // ✅ Filtrar por restaurantId del token
+    const restaurantId = req.user.restaurantId;
+    const filter = restaurantId ? { restaurantId } : {};
+    const requests = await Request.find(filter)
+      .populate('userId', 'name role email')
+      .sort({ timestamp: -1 });
     res.status(200).json(requests);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -59,7 +60,9 @@ exports.updateRequestStatus = async (req, res) => {
     if (!['Approved','Rejected'].includes(status)) {
       return res.status(400).json({ message: 'Invalid status.' });
     }
-    const updated = await Request.findByIdAndUpdate(requestId, { status }, { new: true }).populate('userId');
+    const updated = await Request.findByIdAndUpdate(
+      requestId, { status }, { new: true }
+    ).populate('userId');
     if (!updated) return res.status(404).json({ message: 'Request not found.' });
 
     const employee = await User.findById(updated.userId._id || updated.userId);
