@@ -13,8 +13,11 @@ const generateToken = (user, activeRestaurantId) =>
 
 exports.getStaff = async (req, res) => {
   try {
-    const filter = { restaurantId: req.user.restaurantId };
-    const staff = await User.find(filter).select('-password');
+    const restaurantId = req.user.restaurantId;
+    if (!restaurantId) {
+      return res.status(400).json({ message: 'No restaurant in token.' });
+    }
+    const staff = await User.find({ restaurantId }).select('-password');
     res.status(200).json(staff);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -24,9 +27,8 @@ exports.getStaff = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) {
+    if (!email || !password)
       return res.status(400).json({ message: 'Email and password required.' });
-    }
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) return res.status(404).json({ message: 'User not found.' });
@@ -34,34 +36,28 @@ exports.login = async (req, res) => {
     const isMatch = await user.matchPassword(password);
     if (!isMatch) return res.status(401).json({ message: 'Incorrect password.' });
 
-    // ✅ SUPERADMIN — siempre va al selector
+    // ✅ SUPERADMIN
     if (user.role === 'superadmin') {
       const restaurants = await Restaurant.find({
         _id: { $in: user.managedRestaurants }
       }).select('name address openTime closeTime');
 
-      const tempToken = generateToken(user, null);
-
       return res.status(200).json({
         requiresRestaurantSelection: true,
-        message: 'Select a restaurant to manage.',
-        tempToken,
+        tempToken: generateToken(user, null),
         user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
+          _id: user._id, name: user.name,
+          email: user.email, role: user.role,
           managedRestaurants: restaurants,
         },
       });
     }
 
-    // ✅ ADMIN normal — un solo restaurante
+    // ✅ ADMIN
     if (user.role === 'admin') {
       const restaurant = await Restaurant.findById(user.restaurantId);
       const token = generateToken(user, user.restaurantId);
       return res.status(200).json({
-        message: 'Admin access granted',
         token,
         user: {
           _id: user._id, name: user.name, email: user.email,
@@ -74,10 +70,9 @@ exports.login = async (req, res) => {
       });
     }
 
-    // ✅ EMPLEADO — va directo a su dashboard
+    // ✅ EMPLEADO
     const token = generateToken(user, user.restaurantId);
     return res.status(200).json({
-      message: 'Employee access granted',
       token,
       user: {
         _id: user._id, name: user.name, email: user.email,
@@ -88,7 +83,6 @@ exports.login = async (req, res) => {
       },
       redirectUrl: '/employee-dashboard',
     });
-
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -99,17 +93,20 @@ exports.selectRestaurant = async (req, res) => {
     const { restaurantId } = req.body;
     const user = await User.findById(req.user._id);
 
+    // ✅ Verificar que el restaurante existe en managedRestaurants
     const hasAccess = user.managedRestaurants.some(
       id => id.toString() === restaurantId
     );
-    if (!hasAccess) {
+    if (!hasAccess)
       return res.status(403).json({ message: 'No access to this restaurant.' });
-    }
 
     const restaurant = await Restaurant.findById(restaurantId);
-    if (!restaurant) return res.status(404).json({ message: 'Restaurant not found.' });
+    if (!restaurant)
+      return res.status(404).json({ message: 'Restaurant not found.' });
 
+    // ✅ Generar token con el restaurantId correcto
     const token = generateToken(user, restaurantId);
+
     return res.status(200).json({
       message: 'Restaurant selected.',
       token,
@@ -129,9 +126,9 @@ exports.selectRestaurant = async (req, res) => {
 exports.createUser = async (req, res) => {
   try {
     const { name, email, password, role, contractType, skills } = req.body;
-    if (!name || !email || !password || !role) {
+    if (!name || !email || !password || !role)
       return res.status(400).json({ message: 'Name, email, password and role required.' });
-    }
+
     const exists = await User.findOne({ email: email.toLowerCase().trim() });
     if (exists) return res.status(400).json({ message: 'Email already exists.' });
 
@@ -140,6 +137,7 @@ exports.createUser = async (req, res) => {
       contractType: contractType || 'full-time',
       maxWeeklyHours: contractType === 'part-time' ? 20 : 40,
       skills: skills || [],
+      // ✅ Hereda el restaurantId del token de quien lo crea
       restaurantId: req.user.restaurantId,
     });
     await newUser.save();
@@ -170,7 +168,9 @@ exports.updateUserRole = async (req, res) => {
       updateData.contractType = contractType;
       updateData.maxWeeklyHours = contractType === 'part-time' ? 20 : 40;
     }
-    const updated = await User.findByIdAndUpdate(id, updateData, { new: true }).select('-password');
+    const updated = await User.findByIdAndUpdate(
+      id, updateData, { new: true }
+    ).select('-password');
     if (!updated) return res.status(404).json({ message: 'User not found.' });
     res.status(200).json({ message: 'Updated.', updatedUser: updated });
   } catch (error) {
