@@ -11,23 +11,16 @@ const seedDB = async () => {
     await User.deleteMany({});
     await Restaurant.deleteMany({});
 
-    // Crear dos restaurantes
+    // ✅ Restaurante real
     const r1 = await Restaurant.create({
-      name: 'Rooster Café — Palermo',
-      address: 'Palermo, Buenos Aires',
-      openTime: '10:30', closeTime: '22:00',
+      name: 'TheRabbit Restaurant',
+      address: '',
+      openTime: '10:30',
+      closeTime: '22:00',
     });
+    console.log(`✅ Restaurant: ${r1.name} (${r1._id})`);
 
-    const r2 = await Restaurant.create({
-      name: 'Rooster Café — Recoleta',
-      address: 'Recoleta, Buenos Aires',
-      openTime: '10:30', closeTime: '22:00',
-    });
-
-    console.log(`✅ Restaurant 1: ${r1.name}`);
-    console.log(`✅ Restaurant 2: ${r2.name}`);
-
-    // Superadmin — maneja los dos
+    // ✅ Amber — superadmin con ese restaurante
     await User.create({
       name: 'Amber',
       email: 'amber@rooster.com',
@@ -35,12 +28,13 @@ const seedDB = async () => {
       role: 'superadmin',
       contractType: 'full-time',
       skills: ['management'],
-      managedRestaurants: [r1._id, r2._id],
+      managedRestaurants: [r1._id],
+      restaurantId: null,
     });
-    console.log('✅ Superadmin: Amber (manages both restaurants)');
+    console.log('✅ Superadmin: Amber');
 
-    // Staff del restaurante 1
-    const staff1 = [
+    // ✅ Staff del restaurante
+    const staff = [
       { name: 'Antonio',        email: 'antonio@rooster.com',  password: 'antonio123', role: 'FOH', contractType: 'full-time',  skills: ['bar','coffee','service'] },
       { name: 'PJ',             email: 'pj@rooster.com',       password: 'pj1234',     role: 'FOH', contractType: 'full-time',  skills: ['bar','service'] },
       { name: 'Crystal',        email: 'crystal@rooster.com',  password: 'crystal123', role: 'FOH', contractType: 'full-time',  skills: ['service','management'] },
@@ -50,26 +44,14 @@ const seedDB = async () => {
       { name: 'Betty',          email: 'betty@rooster.com',    password: 'betty123',   role: 'BOH', contractType: 'part-time',  skills: ['support','kitchen'] },
     ];
 
-    for (const u of staff1) {
+    for (const u of staff) {
       await User.create({ ...u, restaurantId: r1._id });
-      console.log(`  ✅ ${u.name} → ${r1.name}`);
-    }
-
-    // Staff del restaurante 2 (ejemplo)
-    const staff2 = [
-      { name: 'Sofia',  email: 'sofia@rooster2.com',  password: 'sofia123',  role: 'FOH', contractType: 'full-time', skills: ['service'] },
-      { name: 'Marco',  email: 'marco@rooster2.com',  password: 'marco123',  role: 'BOH', contractType: 'full-time', skills: ['chef'] },
-    ];
-
-    for (const u of staff2) {
-      await User.create({ ...u, restaurantId: r2._id });
-      console.log(`  ✅ ${u.name} → ${r2.name}`);
+      console.log(`  ✅ ${u.name}`);
     }
 
     console.log('\n🎉 Done!');
-    console.log('  Amber: amber@rooster.com / amber123 (superadmin)');
-    console.log('  Antonio: antonio@rooster.com / antonio123');
-    console.log('  Crystal: crystal@rooster.com / crystal123');
+    console.log('  amber@rooster.com / amber123 → selector de restaurantes');
+    console.log('  crystal@rooster.com / crystal123 → TheRabbit Restaurant');
     mongoose.connection.close();
   } catch (error) {
     console.error('❌', error.message);

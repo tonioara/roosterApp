@@ -6,7 +6,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'mi_clave_secreta_muy_segura';
 
 const generateToken = (user, activeRestaurantId) =>
   jwt.sign(
-    { id: user._id, role: user.role, restaurantId: activeRestaurantId },
+    { id: user._id, role: user.role, restaurantId: activeRestaurantId || null },
     JWT_SECRET,
     { expiresIn: '8h' }
   );
@@ -34,14 +34,18 @@ exports.login = async (req, res) => {
     const isMatch = await user.matchPassword(password);
     if (!isMatch) return res.status(401).json({ message: 'Incorrect password.' });
 
-    // ✅ SUPERADMIN — devolver lista de restaurantes para elegir
+    // ✅ SUPERADMIN — siempre va al selector
     if (user.role === 'superadmin') {
       const restaurants = await Restaurant.find({
         _id: { $in: user.managedRestaurants }
-      });
+      }).select('name address openTime closeTime');
+
+      const tempToken = generateToken(user, null);
+
       return res.status(200).json({
-        message: 'Superadmin access granted',
         requiresRestaurantSelection: true,
+        message: 'Select a restaurant to manage.',
+        tempToken,
         user: {
           _id: user._id,
           name: user.name,
@@ -49,11 +53,10 @@ exports.login = async (req, res) => {
           role: user.role,
           managedRestaurants: restaurants,
         },
-        tempToken: generateToken(user, null),
       });
     }
 
-    // Admin normal
+    // ✅ ADMIN normal — un solo restaurante
     if (user.role === 'admin') {
       const restaurant = await Restaurant.findById(user.restaurantId);
       const token = generateToken(user, user.restaurantId);
@@ -71,9 +74,9 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Empleado normal
+    // ✅ EMPLEADO — va directo a su dashboard
     const token = generateToken(user, user.restaurantId);
-    res.status(200).json({
+    return res.status(200).json({
       message: 'Employee access granted',
       token,
       user: {
@@ -85,6 +88,7 @@ exports.login = async (req, res) => {
       },
       redirectUrl: '/employee-dashboard',
     });
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -106,13 +110,13 @@ exports.selectRestaurant = async (req, res) => {
     if (!restaurant) return res.status(404).json({ message: 'Restaurant not found.' });
 
     const token = generateToken(user, restaurantId);
-    res.status(200).json({
+    return res.status(200).json({
       message: 'Restaurant selected.',
       token,
-      activeRestaurant: { _id: restaurant._id, name: restaurant.name },
       user: {
         _id: user._id, name: user.name, email: user.email,
-        role: user.role, restaurantId,
+        role: user.role,
+        restaurantId: restaurantId,
         restaurantName: restaurant.name,
       },
       redirectUrl: '/admin-dashboard',
