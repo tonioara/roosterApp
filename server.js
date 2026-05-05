@@ -18,7 +18,7 @@ app.use('/api/push',        require('./routes/pushRoutes'));
 app.use('/api/schedule',    require('./routes/scheduleRoutes'));
 app.use('/api/restaurants', require('./routes/restaurantRoutes'));
 
-app.get('/', (req, res) => res.json({ status: 'success', message: 'RoosterApp API — Multi-restaurant' }));
+app.get('/', (req, res) => res.json({ status: 'success', message: 'RoosterApp API' }));
 
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
